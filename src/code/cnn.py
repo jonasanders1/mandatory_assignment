@@ -39,7 +39,7 @@ class CNN(networks.Network):
         If TRAIN=True the networks outputs the loss and the loss derivatives.
         """
         for layer in self.layers[:-1]:
-            x = layer.forward(x)
+            x = layer 
         if TRAIN:
             loss, loss_derivative = self.layers[-1].forward(x, y)
             return loss, loss_derivative

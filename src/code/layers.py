@@ -364,26 +364,15 @@ class ReluLayer(Layers):
         """
         x: Input to layer. Any dimension.
         """
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
+                
         self.store = x
-        out = np.random.random_sample(x.shape)
-        ######################################################
-        ######################################################
-        ######################################################
+        out = np.maximum(0, x)
+
         return out
 
     def backward(self, delta):
         """
         delta: Loss derivative from above. Any dimension.
         """
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
-        x = self.store
-        dx = np.random.random_sample(x.shape)
-        ######################################################
-        ######################################################
-        ######################################################
+        dx = delta * (self.store > 0)
         return dx
