@@ -36,16 +36,6 @@ class Layers():
 
 class FullyConnectedLayer(Layers):
     def __init__(self, dim_in, dim_out):
-        """
-        Implementation of a fully connected layer.
-
-        dim_in: Number of neurons in previous layer.
-        dim_out: Number of neurons in current layer.
-        w: Weight matrix of the layer.
-        b: Bias vector of the layer.
-        dw: Gradient of weight matrix.
-        db: Gradient of bias vector
-        """
         self.dim_in = dim_in
         self.dim_out = dim_out
         self.w = np.random.uniform(-1, 1, (dim_in, dim_out)) / max(dim_in, dim_out)
@@ -54,47 +44,20 @@ class FullyConnectedLayer(Layers):
         self.db = None
 
     def forward(self, x):
-        """
-        Forward pass of fully connencted layer.
-
-        x: Input to layer (either of form Nxdim_in or in tensor form after convolution NxCxHxW).
-        store: Store input to layer for backward pass.
-        """
         self.store = x
-
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
-        out = np.random.random_sample((x.shape[0], self.dim_out))
-        
-        ######################################################
-        ######################################################
-        ######################################################
+        out = np.dot(x, self.w) + self.b
 
         return out
 
     def backward(self, delta):
-        """
-        Backward pass of fully connencted layer.
-
-        delta: Error from succeeding layer
-        dx: Loss derivitive that that is passed on to layers below
-        store: Store input to layer for backward passs
-        """
-
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
-        dx = np.random.random_sample(self.store.shape)
-        self.dw = np.random.random_sample(self.w.shape)
-        self.db = np.random.random_sample(self.b.shape)
-        ######################################################
-        ######################################################
-        ######################################################
-
-        # Upades the weights and bias using the computed gradients
+        self.dw = np.dot(self.store.T, delta) 
+        self.db = np.sum(delta, axis=0) 
+        # Compute the gradient for the input to propagate back
+        dx = np.dot(delta, self.w.T)
+        # Update the weights and bias using the computed gradients
         self.w -= update_param(self.dw)
         self.b -= update_param(self.db)
+        
         return dx
 
 
@@ -125,19 +88,29 @@ class ConvolutionalLayer(Layers):
         store_shape: Save shape of input tensor for backward pass.
         store_col: Save input tensor on matrix from for backward pass.
         """
+        self.store = x
         N, C, H, W = x.shape
         
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
-        self.store = x
-        Wout = int((W - self.filtersize[3]+2*self.pad)/self.stride+1)
-        Hout = int((H - self.filtersize[2]+2*self.pad)/self.stride+1)
-        out = np.random.random_sample((N, self.filtersize[0], Hout, Wout))
-        ######################################################
-        ######################################################
-        ######################################################
-
+        # Calculate output dimensions
+        Hout = int((H - self.filtersize[2] + 2*self.pad)/self.stride + 1)
+        Wout = int((W - self.filtersize[3] + 2*self.pad)/self.stride + 1)
+        
+        # Reshape filters for matrix multiplication
+        w_reshaped = self.w.reshape(self.filtersize[0], -1)
+        
+        # Convert input to columns using im2col
+        x_cols = utils.im2col_indices(x, self.filtersize[2], self.filtersize[3], padding=self.pad, stride=self.stride)
+        
+        # Perform convolution as matrix multiplication
+        out = np.dot(w_reshaped, x_cols) + self.b.reshape(-1, 1)
+        
+        # Reshape output
+        out = out.reshape(self.filtersize[0], Hout, Wout, N)
+        out = out.transpose(3, 0, 1, 2)
+        
+        # Store for backward pass
+        self.x_cols = x_cols
+        
         return out
 
     def backward(self, delta):
@@ -147,21 +120,30 @@ class ConvolutionalLayer(Layers):
         delta: gradients from layer above
         dx: gradients that are propagated to layer below
         """
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
         x = self.store
-        dx = np.random.random_sample(self.store.shape)
-        self.dw = np.random.random_sample(self.w.shape)
-        self.db = np.random.random_sample(self.b.shape)
-        ######################################################
-        ######################################################
-        ######################################################
-
-        # Upades the weights and bias using the computed gradients
+        N, C, H, W = x.shape
+        
+        # Reshape delta
+        delta_reshaped = delta.transpose(1, 2, 3, 0).reshape(self.filtersize[0], -1)
+        
+        # Compute gradient w.r.t weights
+        self.dw = np.dot(delta_reshaped, self.x_cols.T)
+        self.dw = self.dw.reshape(self.w.shape)
+        
+        # Compute gradient w.r.t bias
+        self.db = np.sum(delta_reshaped, axis=1)
+        
+        # Compute gradient w.r.t input
+        w_reshaped = self.w.reshape(self.filtersize[0], -1)
+        dx_cols = np.dot(w_reshaped.T, delta_reshaped)
+        
+        # Convert back to image shape using col2im
+        dx = utils.col2im_indices(dx_cols, x.shape, self.filtersize[2], self.filtersize[3], padding=self.pad, stride=self.stride)
+        
+        # Update weights and bias
         self.w -= update_param(self.dw)
         self.b -= update_param(self.db)
-
+        
         return dx
 
 
@@ -171,10 +153,11 @@ class MaxPoolingLayer(Layers):
     pool_r, pool_c: integers that denote pooling window size along row and column direction
     stride: integer that denotes with what stride the window is applied
     """
-    def __init__(self, pool_r, pool_c, stride):
-        self.pool_r = pool_r
-        self.pool_c = pool_c
+    def __init__(self, pool_height, pool_width, stride):
+        self.pool_height = pool_height
+        self.pool_width = pool_width
         self.stride = stride
+        self.max_idx = None
 
     def forward(self, x):
         """
@@ -188,32 +171,48 @@ class MaxPoolingLayer(Layers):
         """
         N, C, H, W = x.shape
         
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
+        out_height = (H - self.pool_height) // self.stride + 1
+        out_width = (W - self.pool_width) // self.stride + 1
+      
+        out = np.zeros((N, C, out_height, out_width))
+        self.max_idx = np.zeros((N, C, out_height, out_width, 2), dtype=np.int32)  # Store both indices
+      
+        for n in range(N):
+            for c in range(C):
+                for i in range(out_height):
+                    for j in range(out_width):
+                        h_start = i * self.stride
+                        h_end = h_start + self.pool_height
+                        w_start = j * self.stride
+                        w_end = w_start + self.pool_width
+                        
+                        window = x[n, c, h_start:h_end, w_start:w_end]
+                        max_val = np.max(window)
+                        out[n, c, i, j] = max_val
+                        
+                        # Get local indices of max value
+                        local_idx = np.unravel_index(window.argmax(), window.shape)
+                        # Store global indices
+                        self.max_idx[n, c, i, j] = [h_start + local_idx[0], w_start + local_idx[1]]
+        
         self.store = x
-        out = np.random.random_sample((N, C, H//self.pool_r, W//self.pool_c))
-        ######################################################
-        ######################################################
-        ######################################################
-
         return out
 
-    def backward(self, delta):
+    def backward(self, grad):
         """
         Backward pass.
         delta: loss derivative from above (of size NxCxH_outxW_out)
         dX: gradient of loss wrt. input (of size NxCxHxW)
         """
-
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
-        x = self.store
-        dx = np.random.random_sample(x.shape)
-        ######################################################
-        ######################################################
-        ######################################################
+        N, C, H, W = grad.shape
+        dx = np.zeros(self.store.shape)
+        
+        for n in range(N):
+            for c in range(C):
+                for i in range(H):
+                    for j in range(W):
+                        h_idx, w_idx = self.max_idx[n, c, i, j]
+                        dx[n, c, h_idx, w_idx] = grad[n, c, i, j]
 
         return dx
 
