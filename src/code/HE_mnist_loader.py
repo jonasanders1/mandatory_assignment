@@ -6,12 +6,11 @@ import matplotlib.pyplot as plt
 
 def load_mnist(version='small', size_tr=2000, size_te=500, plot=False):
 
-
     """
-    Had to delete the full dataset due to git lfs size limits.
+    Had to delete the full-sized dataset due to git lfs size limits.
     """
     if version == 'full':
-        raise ValueError("Full dataset no longer available. Please use version='small' instead.")
+        raise ValueError("Full-sized dataset no longer available. Please use version='small' instead.")
 
     elif version == 'small':
         with open('data/mnist_train_small.csv') as csvfile:
@@ -21,8 +20,8 @@ def load_mnist(version='small', size_tr=2000, size_te=500, plot=False):
             y_tr = np.zeros((size_tr))
 
             for i, row in enumerate(tqdm(readCSV, total=size_tr, desc='Loading small training data')):
-                x_tr[i] = np.array(row[1:], dtype=np.int)
-                y_tr[i] = np.array(row[0], dtype=np.int)
+                x_tr[i] = np.array(row[1:], dtype=np.float32)
+                y_tr[i] = np.array(row[0], dtype=np.int32)
 
         with open("data/mnist_test_small.csv") as csvfile:
             readCSV = csv.reader(csvfile, delimiter=',')
@@ -31,8 +30,11 @@ def load_mnist(version='small', size_tr=2000, size_te=500, plot=False):
             y_te = np.zeros((size_te))
 
             for i, row in enumerate(tqdm(readCSV, total=size_te, desc='Loading small test data')):
-                x_te[i] = np.array(row[1:], dtype=np.int)
-                y_te[i] = np.array(row[0], dtype=np.int)
+                x_te[i] = np.array(row[1:], dtype=np.float32)
+                y_te[i] = np.array(row[0], dtype=np.int32)
+
+        x_tr = x_tr / 255.0
+        x_te = x_te / 255.0
 
         x_tr = x_tr.reshape(size_tr, 1, 28, 28)
         x_te = x_te.reshape(size_te, 1, 28, 28)
