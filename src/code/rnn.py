@@ -1,5 +1,5 @@
 #import layers_solution as layers
-import layers
+import code.layers as layers
 import networks
 import numpy as np
 from HE_tweets_loader import vecToWords

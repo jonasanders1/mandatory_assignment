@@ -36,25 +36,53 @@ class Layers():
 
 class FullyConnectedLayer(Layers):
     def __init__(self, dim_in, dim_out):
+        """
+        Implementation of a fully connected layer.
+
+        dim_in: Number of neurons in previous layer.
+        dim_out: Number of neurons in current layer.
+        w: Weight matrix of the layer.
+        b: Bias vector of the layer.
+        dw: Gradient of weight matrix.
+        db: Gradient of bias vector
+        """
         self.dim_in = dim_in
         self.dim_out = dim_out
-        self.w = np.random.uniform(-1, 1, (dim_in, dim_out)) / max(dim_in, dim_out)
+        
+    
+        self.w = np.random.randn(dim_in, dim_out) * np.sqrt(2.0 / (dim_in + dim_out))
+        # self.w = np.random.uniform(-1, 1, (dim_in, dim_out)) / max(dim_in, dim_out) # * OLD
+        
         self.b = np.random.uniform(-1, 1, (dim_out,)) / max(dim_in, dim_out)
+        
         self.dw = None
         self.db = None
 
     def forward(self, x):
+        """
+        Forward pass of fully connected layer.
+        x: Input to layer (either of form Nxdim_in or in tensor form after convolution NxCxHxW).
+        """
+        # Reshape input if it comes from conv layer
+        if len(x.shape) > 2:
+            N = x.shape[0]
+            x = x.reshape(N, -1)
+        
         self.store = x
         out = np.dot(x, self.w) + self.b
-
         return out
 
     def backward(self, delta):
-        self.dw = np.dot(self.store.T, delta) 
-        self.db = np.sum(delta, axis=0) 
-        # Compute the gradient for the input to propagate back
+        """
+        Backward pass of fully connected layer.
+        delta: Error from succeeding layer
+        """
+        # Compute gradients
+        self.dw = np.dot(self.store.T, delta)
+        self.db = np.sum(delta, axis=0)
         dx = np.dot(delta, self.w.T)
-        # Update the weights and bias using the computed gradients
+        
+        # Update parameters
         self.w -= update_param(self.dw)
         self.b -= update_param(self.db)
         
@@ -75,145 +103,105 @@ class ConvolutionalLayer(Layers):
         self.filtersize = filtersize
         self.pad = pad
         self.stride = stride
-        self.w = np.random.normal(0, 0.1, filtersize)
+        
+        
+        # self.w = np.random.normal(0, 0.1, filtersize) # * OLD
+        self.w = np.random.randn(*filtersize) * np.sqrt(2.0 / (filtersize[1] * filtersize[2] * filtersize[3]))
         self.b = np.random.normal(0, 0.1, (filtersize[0],))
+        
+        
+        
         self.dw = None
         self.db = None
 
     def forward(self, x):
         """
         Forward pass of convolutional layer.
-        
-        x_col: Input tensor reshaped to matrix form.
-        store_shape: Save shape of input tensor for backward pass.
-        store_col: Save input tensor on matrix from for backward pass.
+        x: Input tensor of form (NxCxHxW)
         """
-        self.store = x
         N, C, H, W = x.shape
+        F, C, HH, WW = self.filtersize
         
         # Calculate output dimensions
-        Hout = int((H - self.filtersize[2] + 2*self.pad)/self.stride + 1)
-        Wout = int((W - self.filtersize[3] + 2*self.pad)/self.stride + 1)
+        Hout = int((H - HH + 2*self.pad)/self.stride + 1)
+        Wout = int((W - WW + 2*self.pad)/self.stride + 1)
         
-        # Reshape filters for matrix multiplication
-        w_reshaped = self.w.reshape(self.filtersize[0], -1)
+        # im2col transformation
+        x_cols = utils.im2col_indices(x, HH, WW, padding=self.pad, stride=self.stride)
+        w_cols = self.w.reshape(F, -1)
         
-        # Convert input to columns using im2col
-        x_cols = utils.im2col_indices(x, self.filtersize[2], self.filtersize[3], padding=self.pad, stride=self.stride)
-        
-        # Perform convolution as matrix multiplication
-        out = np.dot(w_reshaped, x_cols) + self.b.reshape(-1, 1)
-        
-        # Reshape output
-        out = out.reshape(self.filtersize[0], Hout, Wout, N)
+        # Compute convolution as matrix multiplication
+        out = np.dot(w_cols, x_cols) + self.b.reshape(-1, 1)
+        out = out.reshape(F, Hout, Wout, N)
         out = out.transpose(3, 0, 1, 2)
         
-        # Store for backward pass
+        self.store = x
         self.x_cols = x_cols
-        
         return out
 
     def backward(self, delta):
         """
         Backward pass of convolutional layer.
-        
         delta: gradients from layer above
-        dx: gradients that are propagated to layer below
         """
         x = self.store
         N, C, H, W = x.shape
+        F, C, HH, WW = self.filtersize
         
         # Reshape delta
-        delta_reshaped = delta.transpose(1, 2, 3, 0).reshape(self.filtersize[0], -1)
+        delta = delta.transpose(1, 2, 3, 0).reshape(F, -1)
         
-        # Compute gradient w.r.t weights
-        self.dw = np.dot(delta_reshaped, self.x_cols.T)
-        self.dw = self.dw.reshape(self.w.shape)
+        # Compute gradients
+        self.dw = np.dot(delta, self.x_cols.T).reshape(self.w.shape)
+        self.db = np.sum(delta, axis=1)
         
-        # Compute gradient w.r.t bias
-        self.db = np.sum(delta_reshaped, axis=1)
-        
-        # Compute gradient w.r.t input
-        w_reshaped = self.w.reshape(self.filtersize[0], -1)
-        dx_cols = np.dot(w_reshaped.T, delta_reshaped)
-        
-        # Convert back to image shape using col2im
-        dx = utils.col2im_indices(dx_cols, x.shape, self.filtersize[2], self.filtersize[3], padding=self.pad, stride=self.stride)
-        
-        # Update weights and bias
-        self.w -= update_param(self.dw)
-        self.b -= update_param(self.db)
+        # Compute gradient w.r.t. input
+        dx_cols = np.dot(self.w.reshape(F, -1).T, delta)
+        dx = utils.col2im_indices(dx_cols, x.shape, HH, WW, padding=self.pad, stride=self.stride)
         
         return dx
 
 
 class MaxPoolingLayer(Layers):
-    """
-    Implementation of MaxPoolingLayer.
-    pool_r, pool_c: integers that denote pooling window size along row and column direction
-    stride: integer that denotes with what stride the window is applied
-    """
-    def __init__(self, pool_height, pool_width, stride):
-        self.pool_height = pool_height
-        self.pool_width = pool_width
+    def __init__(self, pool_r, pool_c, stride):
+        self.pool_r = pool_r
+        self.pool_c = pool_c
         self.stride = stride
-        self.max_idx = None
 
     def forward(self, x):
-        """
-        Forward pass.
-        x: Input tensor of form (NxCxHxW)
-        out: Output tensor of form NxCxH_outxW_out
-        N: Batch size
-        C: Nr of channels
-        H, H_out: Input and output heights
-        W, W_out: Input and output width
-        """
         N, C, H, W = x.shape
+        pool_height = self.pool_r
+        pool_width = self.pool_c
+        stride = self.stride
         
-        out_height = (H - self.pool_height) // self.stride + 1
-        out_width = (W - self.pool_width) // self.stride + 1
-      
-        out = np.zeros((N, C, out_height, out_width))
-        self.max_idx = np.zeros((N, C, out_height, out_width, 2), dtype=np.int32)  # Store both indices
-      
-        for n in range(N):
-            for c in range(C):
-                for i in range(out_height):
-                    for j in range(out_width):
-                        h_start = i * self.stride
-                        h_end = h_start + self.pool_height
-                        w_start = j * self.stride
-                        w_end = w_start + self.pool_width
-                        
-                        window = x[n, c, h_start:h_end, w_start:w_end]
-                        max_val = np.max(window)
-                        out[n, c, i, j] = max_val
-                        
-                        # Get local indices of max value
-                        local_idx = np.unravel_index(window.argmax(), window.shape)
-                        # Store global indices
-                        self.max_idx[n, c, i, j] = [h_start + local_idx[0], w_start + local_idx[1]]
+        H_out = H // pool_height
+        W_out = W // pool_width
+        
+        # Reshape input for pooling
+        x_reshaped = x.reshape(N, C, H_out, pool_height, W_out, pool_width)
+        
+        # Perform max pooling
+        out = x_reshaped.max(axis=3).max(axis=4)
         
         self.store = x
+        self.x_reshaped = x_reshaped
         return out
 
-    def backward(self, grad):
-        """
-        Backward pass.
-        delta: loss derivative from above (of size NxCxH_outxW_out)
-        dX: gradient of loss wrt. input (of size NxCxHxW)
-        """
-        N, C, H, W = grad.shape
-        dx = np.zeros(self.store.shape)
+    def backward(self, delta):
+        x = self.store
+        x_reshaped = self.x_reshaped
+        N, C, H_out, W_out = delta.shape
         
-        for n in range(N):
-            for c in range(C):
-                for i in range(H):
-                    for j in range(W):
-                        h_idx, w_idx = self.max_idx[n, c, i, j]
-                        dx[n, c, h_idx, w_idx] = grad[n, c, i, j]
-
+        # Reshape delta to match the pooling dimensions
+        delta_reshaped = delta.reshape(N, C, H_out, 1, W_out, 1)
+        
+        # Create mask for maximum values
+        max_mask = (x_reshaped == x_reshaped.max(axis=3, keepdims=True).max(axis=5, keepdims=True))
+        
+        # Distribute gradient
+        dx_reshaped = max_mask * delta_reshaped
+        dx = dx_reshaped.reshape(self.store.shape)
+        
         return dx
 
 
@@ -361,17 +349,20 @@ class ReluLayer(Layers):
     """
     def forward(self, x):
         """
-        x: Input to layer. Any dimension.
+        Forward pass of ReLU activation.
+        x: Input to layer
         """
-                
         self.store = x
-        out = np.maximum(0, x)
-
-        return out
+        return np.maximum(0, x)
 
     def backward(self, delta):
         """
-        delta: Loss derivative from above. Any dimension.
+        Backward pass of ReLU activation.
+        delta: Loss derivative from above
         """
+        # Ensure delta and store have same shape
+        if delta.shape != self.store.shape:
+            delta = delta.reshape(self.store.shape)
+        
         dx = delta * (self.store > 0)
         return dx
