@@ -179,3 +179,23 @@ class RNN(networks.Network):
         vecToWords(out, dataset)
         return None
 
+    def save_model(self, filepath='trump_model.npz'):
+        """Save the trained model weights"""
+        np.savez(filepath, 
+                 we_w=self.layers[0].w,
+                 lstm_wx=self.layers[1].wx,
+                 lstm_wh=self.layers[1].wh,
+                 lstm_b=self.layers[1].b,
+                 fc_w=self.layers[2].w,
+                 fc_b=self.layers[2].b)
+
+    def load_model(self, filepath='trump_model.npz'):
+        """Load the trained weights"""
+        weights = np.load(filepath)
+        self.layers[0].w = weights['we_w']
+        self.layers[1].wx = weights['lstm_wx']
+        self.layers[1].wh = weights['lstm_wh']
+        self.layers[1].b = weights['lstm_b']
+        self.layers[2].w = weights['fc_w']
+        self.layers[2].b = weights['fc_b']
+

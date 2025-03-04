@@ -228,58 +228,81 @@ class LSTMLayer(Layers):
         x: Input to layer (Nxdim_in) where N=#samples in batch and dim_in=feature dimension
         h: Hidden state from previous time step (Nxdim_hid) where dim_hid=#hidden units
         c: Cell state from previous time step (Nxdim_hid) where dim_hid=#hidden units
-        next_h: Updated hidden state(Nxdim_hid)
-        next_c: Updated cell state(Nxdim_hid)
-        cache: A tuple where you can store anything that might be useful for the backward pass
-        """
         
-	    ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
-        next_h = np.random.random_sample(h.shape)
-        next_c = np.random.random_sample(c.shape)
-        cache = (next_h, next_c)
-        ######################################################
-        ######################################################
-        ######################################################
-
+        Returns:
+        next_h: Updated hidden state (Nxdim_hid)
+        next_c: Updated cell state (Nxdim_hid)
+        cache: Tuple containing values needed for backward pass
+        """
+        # Compute all gate inputs (dot products and bias)
+        gates = np.dot(x, self.wx) + np.dot(h, self.wh) + self.b
+        
+        # Split gates into their components
+        n = self.dim_hid
+        i = sigmoid(gates[:, :n])          # input gate
+        f = sigmoid(gates[:, n:2*n])       # forget gate
+        o = sigmoid(gates[:, 2*n:3*n])     # output gate
+        g = np.tanh(gates[:, 3*n:])        # cell gate
+        
+        # Update cell state
+        next_c = f * c + i * g
+        
+        # Update hidden state
+        next_h = o * np.tanh(next_c)
+        
+        # Cache values needed for backward pass
+        cache = (i, f, o, g, x, h, c)
+        
         return next_h, next_c, cache
 
     def backward_step(self, delta_h, delta_c, store):
         """
         Implementation of a single backward step (one timestep)
         delta_h: Upstream gradients from hidden state
-        delta_h: Upstream gradients from cell state
-        store:
-          hn: Updated hidden state from forward pass (Nxdim_hid) where dim_hid=#hidden units
-          x: Input to layer (Nxdim_in) where N=#samples in batch and dim_in=feature dimension
-          h: Hidden state from previous time step (Nxdim_hid) where dim_hid=#hidden units
-          cn: Updated cell state from forward pass (Nxdim_hid) where dim_hid=#hidden units
-          c: Cell state from previous time step (Nxdim_hid) where dim_hid=#hidden units
-          cache: Whatever was added to the cache in forward pass
-        dx: Gradient of loss wrt. input
-        dh: Gradient of loss wrt. previous hidden state
-        dc: Gradient of loss wrt. previous cell state
-        dwh: Gradient of loss wrt. weight tensor for hidden to hidden mapping
-        dwx: Gradient of loss wrt. weight tensor for input to hidden mapping
-        db: Gradient of loss wrt. bias vector
+        delta_c: Upstream gradients from cell state
+        store: Tuple containing cached values from forward pass
+            (i, f, o, g, next_c, next_h, x, h, c)
+        
+        Returns:
+        dx: Gradient of loss wrt input
+        dh: Gradient of loss wrt previous hidden state
+        dc: Gradient of loss wrt previous cell state
+        dwh: Gradient of loss wrt weight tensor for hidden to hidden mapping
+        dwx: Gradient of loss wrt weight tensor for input to hidden mapping
+        db: Gradient of loss wrt bias vector
         """
-        hn, x, h, cn, c, cache = store
-
-        ######################################################
-        ######## REPLACE NEXT PART WITH YOUR SOLUTION ########
-        ######################################################
-        dx = np.random.random_sample(x.shape)
-        dh = np.random.random_sample(h.shape)
-        dc = np.random.random_sample(c.shape)
-        dwh = np.random.random_sample(self.wh.shape)
-        dwx = np.random.random_sample(self.wx.shape)
-        db = np.random.random_sample(self.b.shape)
-        ######################################################
-        ######################################################
-        ######################################################
-
-        return dx, dh, dc, dwh, dwx, db
+        # Unpack stored variables from forward pass
+        next_h, x, h, next_c, c, (i, f, o, g, x, h, prev_c) = store
+        
+        # Gradient of hidden state
+        do = delta_h * np.tanh(next_c)
+        dnext_c = delta_c + delta_h * o * (1 - np.tanh(next_c)**2)
+        
+        # Gradient of cell state
+        di = dnext_c * g
+        df = dnext_c * prev_c
+        dg = dnext_c * i
+        dprev_c = dnext_c * f
+        
+        # Gradient of gate inputs
+        di_input = di * i * (1 - i)
+        df_input = df * f * (1 - f)
+        do_input = do * o * (1 - o)
+        dg_input = dg * (1 - g**2)
+        
+        # Concatenate gate gradients
+        dgates = np.concatenate((di_input, df_input, do_input, dg_input), axis=1)
+        
+        # Compute gradients of weights and biases
+        dwx = np.dot(x.T, dgates)
+        dwh = np.dot(h.T, dgates)
+        db = np.sum(dgates, axis=0)
+        
+        # Compute gradients for recurrent inputs
+        dx = np.dot(dgates, self.wx.T)
+        dh = np.dot(dgates, self.wh.T)
+        
+        return dx, dh, dprev_c, dwh, dwx, db
 
 
 class WordEmbeddingLayer(Layers):
